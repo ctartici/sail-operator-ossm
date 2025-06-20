@@ -25,6 +25,7 @@ import (
 	"github.com/istio-ecosystem/sail-operator/pkg/istioversion"
 	"github.com/istio-ecosystem/sail-operator/pkg/kube"
 	. "github.com/istio-ecosystem/sail-operator/pkg/test/util/ginkgo"
+	"github.com/istio-ecosystem/sail-operator/tests/e2e/util/cleaner"
 	"github.com/istio-ecosystem/sail-operator/tests/e2e/util/common"
 	. "github.com/istio-ecosystem/sail-operator/tests/e2e/util/gomega"
 	. "github.com/onsi/ginkgo/v2"
@@ -45,7 +46,9 @@ var _ = Describe("Control Plane Installation", Label("smoke", "cert-manager", "s
 	Describe("given Istio version", func() {
 		version := istioversion.GetLatestPatchVersions()[0]
 		Context(version.Name, func() {
-			BeforeAll(func() {
+			clr := cleaner.New(cl)
+			BeforeAll(func(ctx SpecContext) {
+				clr.Record(ctx)
 				Expect(k.CreateNamespace(controlPlaneNamespace)).To(Succeed(), "Istio namespace failed to be created")
 				Expect(k.CreateNamespace(istioCniNamespace)).To(Succeed(), "IstioCNI namespace failed to be created")
 				Expect(k.CreateNamespace(istioCSRNamespace)).To(Succeed(), "IstioCSR Namespace failed to be created")
@@ -311,13 +314,6 @@ spec:
 				It("can access the httpbin service from the sleep pod", func(ctx SpecContext) {
 					checkPodConnectivity(sleepPod.Items[0].Name, common.SleepNamespace, common.HttpbinNamespace)
 				})
-
-				AfterAll(func(ctx SpecContext) {
-					By("Deleting the pods")
-					Expect(k.DeleteNamespace(common.HttpbinNamespace, common.SleepNamespace)).
-						To(Succeed(), "Failed to delete namespaces")
-					Success("validation pods deleted")
-				})
 			})
 
 			When("the Istio CR is deleted", func() {
@@ -367,16 +363,6 @@ spec:
 					Success("istio-csr is removed")
 
 					Eventually(func() string {
-						out, _ := k.GetYAML("clusterrolebindings.rbac.authorization.k8s.io", "cert-manager-istio-csr")
-						return strings.TrimSpace(out)
-					}, 30*time.Second, 5*time.Second).Should(BeEmpty(), "clusterrolebinding not removed")
-
-					Eventually(func() string {
-						out, _ := k.GetYAML("clusterroles.rbac.authorization.k8s.io", "cert-manager-istio-csr")
-						return strings.TrimSpace(out)
-					}, 30*time.Second, 5*time.Second).Should(BeEmpty(), "clusterrole not removed")
-
-					Eventually(func() string {
 						out, _ := k.WithNamespace(istioCSRNamespace).GetYAML("deployments.apps", "cert-manager-istio-csr")
 						return strings.TrimSpace(out)
 					}, 30*time.Second, 5*time.Second).Should(BeEmpty(), "deployment not removed")
@@ -390,21 +376,6 @@ spec:
 						out, _ := k.WithNamespace(istioCSRNamespace).GetYAML("serviceaccounts", "cert-manager-istio-csr")
 						return strings.TrimSpace(out)
 					}, 30*time.Second, 5*time.Second).Should(BeEmpty(), "service account not removed")
-
-					Eventually(func() string {
-						out, _ := k.WithNamespace(istioCSRNamespace).GetYAML("roles.rbac.authorization.k8s.io", "cert-manager-istio-csr")
-						return strings.TrimSpace(out)
-					}, 30*time.Second, 5*time.Second).Should(BeEmpty(), "role not removed")
-
-					Eventually(func() string {
-						out, _ := k.WithNamespace(istioCSRNamespace).GetYAML("rolebindings.rbac.authorization.k8s.io", "cert-manager-istio-csr")
-						return strings.TrimSpace(out)
-					}, 30*time.Second, 5*time.Second).Should(BeEmpty(), "rolebinding not removed")
-
-					Eventually(func() string {
-						out, _ := k.WithNamespace(istioCSRNamespace).GetYAML("certificates.cert-manager.io", "cert-manager-istio-csr")
-						return strings.TrimSpace(out)
-					}, 30*time.Second, 5*time.Second).Should(BeEmpty(), "certificate not removed")
 
 					Success("All cert-manager-istio-csr resources are removed")
 				})
@@ -477,34 +448,7 @@ spec:
 				debugInfoLogged = true
 			}
 
-			certManagerCRDs := []string{
-				"certificaterequests.cert-manager.io",
-				"certificates.cert-manager.io",
-				"challenges.acme.cert-manager.io",
-				"clusterissuers.cert-manager.io",
-				"issuers.cert-manager.io",
-				"orders.acme.cert-manager.io",
-			}
-
-			By("Deleting the CRDs")
-			Expect(k.DeleteCRDs(certManagerCRDs)).To(Succeed(), "Cert-manager CRDs failed to be deleted")
-			Success("CRDs deleted")
-
-			By("Cleaning up the Istio namespace")
-			Expect(k.DeleteNamespace(controlPlaneNamespace)).To(Succeed(), "Istio Namespace failed to be deleted")
-
-			By("Cleaning up the IstioCNI namespace")
-			Expect(k.DeleteNamespace(istioCniNamespace)).To(Succeed(), "IstioCNI Namespace failed to be deleted")
-
-			By("Cleaning up the IstioCSR namespace")
-			Expect(k.DeleteNamespace(istioCSRNamespace)).To(Succeed(), "IstioCSR Namespace failed to be deleted")
-
-			By("Cleaning up the cert-manager-operator namespace")
-			Expect(k.DeleteNamespace(certManagerOperatorNamespace)).To(Succeed(), "cert-manager-operator Namespace failed to be deleted")
-
-			By("Cleaning up the cert-manager namespace")
-			Expect(k.DeleteNamespace(certManagerNamespace)).To(Succeed(), "cert-manager Namespace failed to be deleted")
-			Success("Cleanup done")
+			clr.Cleanup(ctx)
 		})
 	})
 

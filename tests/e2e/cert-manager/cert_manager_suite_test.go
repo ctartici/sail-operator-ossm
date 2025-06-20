@@ -22,6 +22,7 @@ import (
 	"github.com/istio-ecosystem/sail-operator/pkg/env"
 	"github.com/istio-ecosystem/sail-operator/pkg/kube"
 	. "github.com/istio-ecosystem/sail-operator/pkg/test/util/ginkgo"
+	"github.com/istio-ecosystem/sail-operator/tests/e2e/util/cleaner"
 	k8sclient "github.com/istio-ecosystem/sail-operator/tests/e2e/util/client"
 	"github.com/istio-ecosystem/sail-operator/tests/e2e/util/common"
 	. "github.com/istio-ecosystem/sail-operator/tests/e2e/util/gomega"
@@ -48,8 +49,10 @@ var (
 	istioCniName                 = env.Get("ISTIOCNI_NAME", "default")
 	skipDeploy                   = env.GetBool("SKIP_DEPLOY", false)
 	expectedRegistry             = env.Get("EXPECTED_REGISTRY", "^docker\\.io|^gcr\\.io")
+	keepOnFailure                = env.GetBool("KEEP_ON_FAILURE", false)
 
-	k kubectl.Kubectl
+	k   kubectl.Kubectl
+	clr cleaner.Cleaner
 )
 
 func TestCertManager(t *testing.T) {
@@ -60,13 +63,17 @@ func TestCertManager(t *testing.T) {
 
 func setup() {
 	GinkgoWriter.Println("************ Running Setup ************")
+
 	GinkgoWriter.Println("Initializing k8s client")
 	cl, err = k8sclient.InitK8sClient("")
 	Expect(err).NotTo(HaveOccurred())
+
 	k = kubectl.New()
+	clr = cleaner.New(cl)
 }
 
 var _ = BeforeSuite(func(ctx SpecContext) {
+	clr.Record(ctx)
 	Expect(k.CreateNamespace(namespace)).To(Succeed(), "Namespace failed to be created")
 	GinkgoWriter.Println("Created: namespace cert manager")
 	if skipDeploy {
@@ -81,14 +88,10 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 	Success("Cert Manager Operator is deployed in the namespace and Running")
 })
 
-var _ = AfterSuite(func(ctx SpecContext) {
-	if skipDeploy {
-		Success("Skipping operator undeploy because it was deployed externally")
+var _ = ReportAfterSuite("Conditional cleanup", func(ctx SpecContext, r Report) {
+	if !r.SuiteSucceeded && keepOnFailure {
 		return
 	}
 
-	By("Deleting operator deployment")
-	Expect(common.UninstallOperator()).
-		To(Succeed(), "Operator failed to be deleted")
-	GinkgoWriter.Println("Operator uninstalled")
+	clr.Cleanup(ctx)
 })
